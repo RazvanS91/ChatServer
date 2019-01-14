@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 
 namespace ChatServer
 {
@@ -11,6 +12,11 @@ namespace ChatServer
         public void Join(Participant client)
         {
             clients.Add(client);
+            new Thread(() => HandleClient(client)).Start();
+        }
+
+        private void HandleClient(Participant client)
+        {
             client.ReceiveUsername();
             while (true)
             {

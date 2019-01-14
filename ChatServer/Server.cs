@@ -15,7 +15,10 @@ namespace ChatServer
         public void Start()
         {
             server.Start();
-            AcceptClient();
+            while (true)
+            {
+                AcceptClient();
+            }
         }
 
         private void AcceptClient()
