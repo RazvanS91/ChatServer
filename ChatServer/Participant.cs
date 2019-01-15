@@ -26,7 +26,8 @@ namespace ChatServer
         public Message RetrieveMessage()
         {
             string dataFromClient = Encoding.ASCII.GetString(GetDataFromClient());
-            return new Message(dataFromClient);
+            Message message = new Message(dataFromClient);
+            return new Message(username, message);
         }
 
         private byte[] GetDataFromClient()
@@ -36,9 +37,8 @@ namespace ChatServer
 
         public void Send(Message message)
         {
-            var msg = new Message(username, message);
-            sReader.WriteShort(msg.Length);
-            sReader.WriteData(msg.ToByteArray());
+            sReader.WriteShort(message.Length);
+            sReader.WriteData(message.ToByteArray());
         }
 
         public void Disconnect()
