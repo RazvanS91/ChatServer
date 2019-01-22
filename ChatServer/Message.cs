@@ -25,6 +25,9 @@ namespace ChatServer
             Length = (short)data.Length;
         }
 
+        public override bool Equals(object obj)
+            => obj is Message message ? data == message.data : base.Equals(obj);
+
         public byte[] ToByteArray()
         {
             return Encoding.ASCII.GetBytes(data);

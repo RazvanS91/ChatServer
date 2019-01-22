@@ -7,17 +7,22 @@ using System.Threading.Tasks;
 
 namespace ChatServer
 {
-    public class ChatRoom
+    public class ChatRoomS
     {
-        private List<Participant> clients = new List<Participant>();
+        private List<ParticipantS> clients = new List<ParticipantS>();
 
-        public void Join(Participant client)
+        public void Join(ParticipantS client)
         {
             clients.Add(client);
-            new Thread(() => HandleClient(client)).Start();
+            HandleClient(client);
         }
 
-        private void HandleClient(Participant client)
+        public void Add(ParticipantS client)
+        {
+            clients.Add(client);
+        }
+
+        private void HandleClient(ParticipantS client)
         {
             try
             {
@@ -38,7 +43,7 @@ namespace ChatServer
             }
         }
 
-        public void Leave(Participant client, bool hasLostConnection)
+        public void Leave(ParticipantS client, bool hasLostConnection)
         {
             client.isConnected = false;
             clients.Remove(client);
@@ -49,19 +54,21 @@ namespace ChatServer
 
         public void SendMessageToAllClients(Message message)
         {
-            List<Participant> clientsToRemove = new List<Participant>();
-
-            foreach (var client in clients)
+            List<ParticipantS> clientsToRemove = new List<ParticipantS>();
+            foreach(var client in clients)
             {
                 try
                 {
                     client.Send(message);
+                    client.Message = Encoding.ASCII.GetString(message.ToByteArray());
+                    Console.WriteLine($"Message succesfully sent at {DateTime.Now} to {client.Username} : {Encoding.ASCII.GetString(message.ToByteArray())}");
                 }
-                catch (ObjectDisposedException)
+                catch(ObjectDisposedException)
                 {
                     clientsToRemove.Add(client);
                 }
             }
+
             foreach (var client in clientsToRemove)
                 Leave(client, true);
         }

@@ -24,7 +24,7 @@ namespace ChatServer.Tests
             participant.ReceiveUsername();
 
             // then
-            Assert.Equal(userName, participant.UserName);
+            Assert.Equal(userName, participant.Username);
         }
 
         [Fact]
@@ -46,7 +46,7 @@ namespace ChatServer.Tests
             participant.RetrieveMessage();
 
             Assert.Equal(message, participant.Message);
-            Assert.Equal(user, participant.UserName);
+            Assert.Equal(user, participant.Username);
         }
 
         [Fact]
@@ -63,9 +63,65 @@ namespace ChatServer.Tests
             participant.RetrieveMessage();
 
             // then
-            Assert.Equal(userName, participant.UserName);
+            Assert.Equal(userName, participant.Username);
             Assert.Equal(message, participant.Message);
 
+        }
+
+        [Fact]
+        public void ServerReceivesZeroBytes()
+        {
+            var username = "test";
+            var message = "";
+            var ms = new MemoryStream();
+            var ms2 = new MemoryStream();
+
+            ms.Write(BitConverter.GetBytes((short)username.Length));
+            ms.Write(Encoding.ASCII.GetBytes(username));
+            ms.Write(BitConverter.GetBytes((short)message.Length));
+            ms.Write(Encoding.ASCII.GetBytes(message));
+            ms.Seek(0, SeekOrigin.Begin);
+
+            var participant = new ParticipantS(ms);
+            var participant2 = new ParticipantS(ms2);
+            var chatRoom = new ChatRoomS();
+
+            chatRoom.Add(participant2);
+            chatRoom.Join(participant);
+
+            Assert.Equal("test lost connection !", participant2.Message);
+            Assert.False(participant.isConnected);
+        }
+
+        [Fact]
+        public void OneParticipantLosesConnection()
+        {
+            var username = "abc";
+            var ms = new MemoryStream();
+            var ms2 = new MemoryStream();
+            var ms3 = new MemoryStream();
+
+            ms.Write(BitConverter.GetBytes((short)username.Length));
+            ms.Write(Encoding.ASCII.GetBytes(username));
+            ms.Seek(0, SeekOrigin.Begin);
+
+            var participant = new ParticipantS(ms);
+            var participant2 = new ParticipantS(ms2);
+            var participant3 = new ParticipantS(ms3);
+
+            var chatRoom = new ChatRoomS();
+
+            chatRoom.Add(participant);
+            chatRoom.Add(participant2);
+            chatRoom.Add(participant3);
+
+            participant.ReceiveUsername();
+            participant.Disconnect();
+
+            chatRoom.SendMessageToAllClients(new Message("test"));
+            Assert.False(participant.isConnected);
+            Assert.Equal("abc lost connection !", participant2.Message);
+            Assert.Equal("abc lost connection !", participant3.Message);
         }
     }
 }

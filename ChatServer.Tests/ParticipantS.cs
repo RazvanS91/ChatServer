@@ -7,18 +7,19 @@ using System.Threading;
 
 namespace ChatServer
 {
-    public class Participant
+    public class ParticipantS
     {
         private StreamReader sReader;
-        private TcpClient client;
+        private Stream stream;
         internal bool isConnected;
 
         public string Username { get; private set; }
+        public string Message { get; set; }
 
-        public Participant(TcpClient client)
+        public ParticipantS(Stream stream)
         {
-            this.client = client;
-            sReader = new StreamReader(client.GetStream());
+            this.stream = stream;
+            sReader = new StreamReader(stream);
         }
 
         public void ReceiveUsername()
@@ -29,11 +30,14 @@ namespace ChatServer
 
         public Message RetrieveMessage()
         {
-
             string dataFromClient = Encoding.ASCII.GetString(GetDataFromClient());
             if (dataFromClient == $"{Username} is now offline !")
+            {
+                Message = dataFromClient;
                 return new Message(dataFromClient);
+            }
             Message message = new Message(dataFromClient);
+            Message = dataFromClient;
             return new Message(Username, message);
         }
 
@@ -51,7 +55,6 @@ namespace ChatServer
         public void Disconnect()
         {
             sReader.Close();
-            client.Close();
         }
     }
 }

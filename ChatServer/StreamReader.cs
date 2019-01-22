@@ -7,7 +7,7 @@ using System.Net.Sockets;
 
 namespace ChatServer
 {
-    class StreamReader
+    public class StreamReader
     {
         private byte[] data;
         private byte[] dataFromClient;
@@ -52,6 +52,8 @@ namespace ChatServer
             if (CheckRemaining())
             {
                 dataFromClient = remaining;
+                if(dataFromClient.Length >= length)
+                    return TreatDataOverflow(length);
                 return GetBytesFromData(length);
             }
 
@@ -64,20 +66,27 @@ namespace ChatServer
             do
             {
                 int bytesReceived = stream.Read(data);
+                if(bytesReceived == 0 || length == 0)
+                    throw new IOException();
                 int index = dataFromClient.Length;
                 Array.Resize(ref dataFromClient, dataFromClient.Length + bytesReceived);
                 Array.Copy(data, 0, dataFromClient, index, bytesReceived);
             } while (dataFromClient.Length < length);
 
-            if (dataFromClient.Length > length)
-            {
-                Array.Resize(ref remaining, dataFromClient.Length - length);
-                Array.Copy(dataFromClient, length, remaining, 0, remaining.Length);
-            }
+            if (dataFromClient.Length >= length)
+                return TreatDataOverflow(length);
+            return dataFromClient;
+        }
+
+        private byte[] TreatDataOverflow(int length)
+        {
+            Array.Resize(ref remaining, dataFromClient.Length - length);
+            Array.Copy(dataFromClient, length, remaining, 0, remaining.Length);
             Array.Resize(ref dataFromClient, length);
             return dataFromClient;
         }
 
-        private bool CheckRemaining() => !Object.Equals(remaining, null) ? true : false;
+        private bool CheckRemaining()
+            => (Object.Equals(remaining, null) || remaining.Length == 0) ? false : true;
     }
 }
