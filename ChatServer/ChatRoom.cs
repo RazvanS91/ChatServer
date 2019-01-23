@@ -14,7 +14,7 @@ namespace ChatServer
         public void Join(Participant client)
         {
             clients.Add(client);
-            new Thread(() => HandleClient(client)).Start();
+            Task.Run(() => HandleClient(client));
         }
 
         private void HandleClient(Participant client)
@@ -56,6 +56,7 @@ namespace ChatServer
                 try
                 {
                     client.Send(message);
+                    Console.WriteLine($"Message sent to {client.Username} : {Encoding.ASCII.GetString(message.ToByteArray())}");
                 }
                 catch (ObjectDisposedException)
                 {

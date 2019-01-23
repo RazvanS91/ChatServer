@@ -4,6 +4,8 @@ using System.Text;
 using System.Net;
 using System.IO;
 using System.Net.Sockets;
+using System.Threading.Tasks;
+using System.Threading;
 
 namespace ChatServer
 {
@@ -63,19 +65,26 @@ namespace ChatServer
 
         private byte[] GetBytesFromData(int length)
         {
-            do
-            {
-                int bytesReceived = stream.Read(data);
-                if(bytesReceived == 0 || length == 0)
-                    throw new IOException();
-                int index = dataFromClient.Length;
-                Array.Resize(ref dataFromClient, dataFromClient.Length + bytesReceived);
-                Array.Copy(data, 0, dataFromClient, index, bytesReceived);
-            } while (dataFromClient.Length < length);
+            Task<int> bytesReceived = stream.ReadAsync(data).AsTask();
+            Task toContinue = bytesReceived.ContinueWith(CopyBytesAndResize, length);
+            toContinue.Wait();
 
             if (dataFromClient.Length >= length)
                 return TreatDataOverflow(length);
             return dataFromClient;
+        }
+
+        private void CopyBytesAndResize(Task<int> bytesReceived, object length)
+        {
+            if (bytesReceived.Result == 0 || (int)length == 0)
+                throw new IOException();
+
+            int index = dataFromClient.Length;
+            Array.Resize(ref dataFromClient, dataFromClient.Length + bytesReceived.Result);
+            Array.Copy(data, 0, dataFromClient, index, bytesReceived.Result);
+
+            while (dataFromClient.Length < (int)length)
+                GetBytesFromData((int)length);
         }
 
         private byte[] TreatDataOverflow(int length)
