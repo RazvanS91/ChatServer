@@ -12,9 +12,10 @@ namespace ChatServer
     public class StreamReader
     {
         private byte[] data;
-        private byte[] dataFromClient;
+        private byte[] dataFromClient = new byte[0];
         private byte[] remaining;
         private readonly Stream stream;
+        private TaskCompletionSource<byte[]> tcs;
 
         public StreamReader(Stream stream)
         {
@@ -22,26 +23,24 @@ namespace ChatServer
             data = new byte[12];
         }
 
-        public short ReadShort()
+        public Task<short> ReadShort()
         {
-            var data = GetData(2);
-            return BitConverter.ToInt16(data);
+            return GetData(2).ContinueWith(x => BitConverter.ToInt16(x.Result));
         }
 
-        public string ReadString(short size)
+        public Task<string> ReadString(short size)
         {
-            var data = GetData(size);
-            return Encoding.ASCII.GetString(data);
+            return GetData(size).ContinueWith(x => Encoding.ASCII.GetString(x.Result));
         }
 
-        public void WriteShort(short value)
+        public Task WriteShort(short value)
         {
-            WriteData(BitConverter.GetBytes(value));
+            return WriteData(BitConverter.GetBytes(value));
         }
 
-        public void WriteData(byte[] value)
+        public Task WriteData(byte[] value)
         {
-            stream.Write(value);
+            return stream.WriteAsync(value).AsTask();
         }
 
         public void Close()
@@ -49,50 +48,69 @@ namespace ChatServer
             stream.Close();
         }
 
-        public byte[] GetData(int length)
+        public Task<byte[]> GetData(int length)
         {
             if (CheckRemaining())
             {
+                tcs = new TaskCompletionSource<byte[]>();
                 dataFromClient = remaining;
-                if(dataFromClient.Length >= length)
-                    return TreatDataOverflow(length);
-                return GetBytesFromData(length);
+                if (dataFromClient.Length >= length)
+                {
+                    TreatDataOverflow(dataFromClient.Length - length);
+                    tcs.SetResult(dataFromClient);
+                    return tcs.Task;
+                }
+                return GetRemainingData(length - dataFromClient.Length);
             }
-
             Array.Resize(ref dataFromClient, 0);
-            return GetBytesFromData(length);
+
+            return stream.ReadAsync(data).AsTask().ContinueWith(bytesRead =>
+            {
+                ResizeAndCopy(bytesRead.Result);
+                if (dataFromClient.Length < length)
+                    return GetRemainingData(length - bytesRead.Result).Result;
+                TreatDataOverflow(dataFromClient.Length - length);
+                return dataFromClient;
+            });
         }
 
-        private byte[] GetBytesFromData(int length)
+        private Task<byte[]> GetRemainingData(int remainingLength)
         {
-            Task<int> bytesReceived = stream.ReadAsync(data).AsTask();
-            Task toContinue = bytesReceived.ContinueWith(CopyBytesAndResize, length);
-            toContinue.Wait();
+            Console.WriteLine($"GetRemainingData >> {remainingLength}");
+            var tcs = new TaskCompletionSource<byte[]>();
 
-            if (dataFromClient.Length >= length)
-                return TreatDataOverflow(length);
-            return dataFromClient;
+            stream.ReadAsync(data).AsTask().ContinueWith(taskRes =>
+            {
+                Console.WriteLine($"Read {taskRes.Result} from {remainingLength}");
+                ResizeAndCopy(taskRes.Result);
+                if (taskRes.Result >= remainingLength)
+                {
+                    Console.WriteLine($"Done reading. Setting result");
+                    TreatDataOverflow(taskRes.Result - remainingLength);
+                    tcs.SetResult(dataFromClient);
+                    return;
+                }
+                Console.WriteLine($"Not done. Calling getRemainingData again...");
+                GetRemainingData(remainingLength - taskRes.Result);
+                Console.WriteLine($"Call complete");
+            });
+            Console.WriteLine("GetRemainingData << ");
+            return tcs.Task;
         }
 
-        private void CopyBytesAndResize(Task<int> bytesReceived, object length)
+        private void ResizeAndCopy(int bytesRead)
         {
-            if (bytesReceived.Result == 0 || (int)length == 0)
-                throw new IOException();
-
             int index = dataFromClient.Length;
-            Array.Resize(ref dataFromClient, dataFromClient.Length + bytesReceived.Result);
-            Array.Copy(data, 0, dataFromClient, index, bytesReceived.Result);
-
-            while (dataFromClient.Length < (int)length)
-                GetBytesFromData((int)length);
+            Array.Resize(ref dataFromClient, dataFromClient.Length + bytesRead);
+            Array.Copy(data, 0, dataFromClient, index, bytesRead);
         }
 
-        private byte[] TreatDataOverflow(int length)
+        private void TreatDataOverflow(int extraLength)
         {
-            Array.Resize(ref remaining, dataFromClient.Length - length);
-            Array.Copy(dataFromClient, length, remaining, 0, remaining.Length);
-            Array.Resize(ref dataFromClient, length);
-            return dataFromClient;
+            int index = dataFromClient.Length - extraLength;
+            Array.Resize(ref remaining, extraLength);
+            Array.Copy(dataFromClient, index, remaining, 0, extraLength);
+            Array.Resize(ref dataFromClient, index);
         }
 
         private bool CheckRemaining()

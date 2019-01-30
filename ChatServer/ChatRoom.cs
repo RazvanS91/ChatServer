@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace ChatServer
 {
@@ -14,28 +15,23 @@ namespace ChatServer
         public void Join(Participant client)
         {
             clients.Add(client);
-            Task.Run(() => HandleClient(client));
+            HandleClient(client);
         }
 
-        private void HandleClient(Participant client)
+        private Task HandleClient(Participant client)
         {
-            try
+            return client.ReceiveUsername().ContinueWith(uName =>
             {
-                client.ReceiveUsername();
                 SendMessageToAllClients(new Message($"{client.Username} is now online !"));
                 while (client.isConnected)
                 {
-                    Message message = client.RetrieveMessage();
+                    Message message = client.RetrieveMessage().Result;
                     if (message.Equals(new Message($"{client.Username} is now offline !")))
                         client.isConnected = false;
                     SendMessageToAllClients(message);
                 }
-                Leave(client, false);
-            }
-            catch (IOException)
-            {
-                Leave(client, true);
-            }
+            Leave(client, false);
+            });
         }
 
         public void Leave(Participant client, bool hasLostConnection)
