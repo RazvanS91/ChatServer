@@ -15,7 +15,6 @@ namespace ChatServer
         private byte[] dataFromClient = new byte[0];
         private byte[] remaining;
         private readonly Stream stream;
-        private TaskCompletionSource<byte[]> tcs;
 
         public StreamReader(Stream stream)
         {
@@ -50,9 +49,9 @@ namespace ChatServer
 
         public Task<byte[]> GetData(int length)
         {
+            var tcs = new TaskCompletionSource<byte[]>();
             if (CheckRemaining())
             {
-                tcs = new TaskCompletionSource<byte[]>();
                 dataFromClient = remaining;
                 if (dataFromClient.Length >= length)
                 {
@@ -60,7 +59,7 @@ namespace ChatServer
                     tcs.SetResult(dataFromClient);
                     return tcs.Task;
                 }
-                return GetRemainingData(length - dataFromClient.Length);
+                return GetRemainingData(length - dataFromClient.Length, tcs);
             }
             Array.Resize(ref dataFromClient, 0);
 
@@ -68,33 +67,25 @@ namespace ChatServer
             {
                 ResizeAndCopy(bytesRead.Result);
                 if (dataFromClient.Length < length)
-                    return GetRemainingData(length - bytesRead.Result).Result;
+                    return GetRemainingData(length - bytesRead.Result, tcs).Result;
                 TreatDataOverflow(dataFromClient.Length - length);
                 return dataFromClient;
             });
         }
 
-        private Task<byte[]> GetRemainingData(int remainingLength)
-        {
-            Console.WriteLine($"GetRemainingData >> {remainingLength}");
-            var tcs = new TaskCompletionSource<byte[]>();
-
+        private Task<byte[]> GetRemainingData(int remainingLength, TaskCompletionSource<byte[]> tcs)
+        { 
             stream.ReadAsync(data).AsTask().ContinueWith(taskRes =>
             {
-                Console.WriteLine($"Read {taskRes.Result} from {remainingLength}");
                 ResizeAndCopy(taskRes.Result);
                 if (taskRes.Result >= remainingLength)
                 {
-                    Console.WriteLine($"Done reading. Setting result");
                     TreatDataOverflow(taskRes.Result - remainingLength);
                     tcs.SetResult(dataFromClient);
                     return;
                 }
-                Console.WriteLine($"Not done. Calling getRemainingData again...");
-                GetRemainingData(remainingLength - taskRes.Result);
-                Console.WriteLine($"Call complete");
+                GetRemainingData(remainingLength - taskRes.Result, tcs);
             });
-            Console.WriteLine("GetRemainingData << ");
             return tcs.Task;
         }
 
