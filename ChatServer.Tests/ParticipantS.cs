@@ -12,6 +12,7 @@ namespace ChatServer
         private StreamReader sReader;
         private Stream stream;
         internal bool isConnected;
+        private Action<Message> broadcast;
 
         public string Username { get; private set; }
         public string Message { get; set; }
@@ -22,28 +23,58 @@ namespace ChatServer
             sReader = new StreamReader(stream);
         }
 
-        public void ReceiveUsername()
+        public void StartConversation(Action<Message> callback)
         {
-            Username = Encoding.ASCII.GetString(GetDataFromClient());
-            isConnected = true;
-        }
-
-        public Message RetrieveMessage()
-        {
-            string dataFromClient = Encoding.ASCII.GetString(GetDataFromClient());
-            if (dataFromClient == $"{Username} is now offline !")
+            broadcast = callback;
+            GetDataFromClient(b =>
             {
-                Message = dataFromClient;
-                return new Message(dataFromClient);
-            }
-            Message message = new Message(dataFromClient);
-            Message = dataFromClient;
-            return new Message(Username, message);
+                Username = Encoding.ASCII.GetString(b);
+                isConnected = true;
+                broadcast(new Message($"{Username} is now online !"));
+                RecursivelyGetMessages();
+            });
         }
 
-        private byte[] GetDataFromClient()
+        private void RecursivelyGetMessages()
         {
-            return sReader.GetData(sReader.ReadShort());
+            RetrieveMessage(m =>
+            {
+                broadcast(m);
+                if (isConnected)
+                    RecursivelyGetMessages();
+            });
+        }
+
+        public void RetrieveMessage(Action<Message> callback)
+        {
+            GetDataFromClient(r =>
+            {
+                if (r.Length == 0)
+                    isConnected = false;
+                else
+                {
+                    var data = Encoding.ASCII.GetString(r);
+                    Message = data;
+                    Message message = new Message(data);
+                    if (data == $"{Username} is now offline !")
+                    {
+                        isConnected = false;
+                        callback(message);
+                    }
+                    else
+                        callback(new Message(Username, message));
+                }
+            });
+        }
+
+        private void GetDataFromClient(Action<byte[]> callback)
+        {
+            sReader.ReadShort(length =>
+            {
+                if (length == 0)
+                    callback(new byte[0]);
+                sReader.GetData(length, r => callback(r));
+            });
         }
 
         public void Send(Message message)
@@ -55,6 +86,7 @@ namespace ChatServer
         public void Disconnect()
         {
             sReader.Close();
+            stream.Close();
         }
     }
 }

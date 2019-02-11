@@ -2,6 +2,7 @@
 using System.IO;
 using System.Text;
 using Xunit;
+using System.Threading.Tasks;
 
 namespace ChatServer.Tests
 {
@@ -13,17 +14,21 @@ namespace ChatServer.Tests
             // given
             var userName = "test";
             var memoryStream = new MemoryStream();
+            var participant = new ParticipantS(memoryStream);
             var size = BitConverter.GetBytes((short)userName.Length);
             memoryStream.Write(size);
             memoryStream.Write(Encoding.ASCII.GetBytes(userName));
             memoryStream.Seek(0, SeekOrigin.Begin);
 
-            var participant = new ParticipantS(memoryStream);
 
             // when
-            participant.ReceiveUsername();
+            TaskCompletionSource<int> taskCompletionSource = new TaskCompletionSource<int>();
+
+            participant.StartConversation(m => taskCompletionSource.SetResult(1));
+            Task.WaitAny(taskCompletionSource.Task, Task.Delay(1000));
 
             // then
+            Assert.True(taskCompletionSource.Task.Status == TaskStatus.RanToCompletion);
             Assert.Equal(userName, participant.Username);
         }
 
@@ -33,6 +38,7 @@ namespace ChatServer.Tests
             var user = "username_given"; // 14
             var message = "This is a test string"; // 21
             var ms = new MemoryStream();
+            var participant = new ParticipantS(ms);
 
             ms.Write(BitConverter.GetBytes((short)user.Length));
             ms.Write(Encoding.ASCII.GetBytes(user));
@@ -40,88 +46,16 @@ namespace ChatServer.Tests
             ms.Write(Encoding.ASCII.GetBytes(message));
             ms.Seek(0, SeekOrigin.Begin);
 
-            var participant = new ParticipantS(ms);
+            TaskCompletionSource<int> tcs = new TaskCompletionSource<int>();
+            int calls = 0;
 
-            participant.ReceiveUsername();
-            participant.RetrieveMessage();
+            participant.StartConversation(m => { calls++; if (calls == 2) tcs.SetResult(5); });
+            Task.WaitAny(tcs.Task, Task.Delay(2000));
 
-            Assert.Equal(message, participant.Message);
+            Assert.True(tcs.Task.Status == TaskStatus.RanToCompletion);
             Assert.Equal(user, participant.Username);
-        }
-
-        [Fact]
-        public void ReceivesTheUserNameWhenTheResponseIsChuncked()
-        {
-            // given
-            var userName = "test";
-            var message = "message";
-            var memoryStream = new ChunkedStringStream(userName, message);
-            var participant = new ParticipantS(memoryStream);
-
-            // when
-            participant.ReceiveUsername();
-            participant.RetrieveMessage();
-
-            // then
-            Assert.Equal(userName, participant.Username);
             Assert.Equal(message, participant.Message);
-
-        }
-
-        [Fact]
-        public void ServerReceivesZeroBytes()
-        {
-            var username = "test";
-            var message = "";
-            var ms = new MemoryStream();
-            var ms2 = new MemoryStream();
-
-            ms.Write(BitConverter.GetBytes((short)username.Length));
-            ms.Write(Encoding.ASCII.GetBytes(username));
-            ms.Write(BitConverter.GetBytes((short)message.Length));
-            ms.Write(Encoding.ASCII.GetBytes(message));
-            ms.Seek(0, SeekOrigin.Begin);
-
-            var participant = new ParticipantS(ms);
-            var participant2 = new ParticipantS(ms2);
-            var chatRoom = new ChatRoomS();
-
-            chatRoom.Add(participant2);
-            chatRoom.Join(participant);
-
-            Assert.Equal("test lost connection !", participant2.Message);
             Assert.False(participant.isConnected);
-        }
-
-        [Fact]
-        public void OneParticipantLosesConnection()
-        {
-            var username = "abc";
-            var ms = new MemoryStream();
-            var ms2 = new MemoryStream();
-            var ms3 = new MemoryStream();
-
-            ms.Write(BitConverter.GetBytes((short)username.Length));
-            ms.Write(Encoding.ASCII.GetBytes(username));
-            ms.Seek(0, SeekOrigin.Begin);
-
-            var participant = new ParticipantS(ms);
-            var participant2 = new ParticipantS(ms2);
-            var participant3 = new ParticipantS(ms3);
-
-            var chatRoom = new ChatRoomS();
-
-            chatRoom.Add(participant);
-            chatRoom.Add(participant2);
-            chatRoom.Add(participant3);
-
-            participant.ReceiveUsername();
-            participant.Disconnect();
-
-            chatRoom.SendMessageToAllClients(new Message("test"));
-            Assert.False(participant.isConnected);
-            Assert.Equal("abc lost connection !", participant2.Message);
-            Assert.Equal("abc lost connection !", participant3.Message);
         }
     }
 }

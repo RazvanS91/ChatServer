@@ -4,34 +4,33 @@ using System.Text;
 using System.Net;
 using System.IO;
 using System.Net.Sockets;
-using System.Threading.Tasks;
-using System.Threading;
 
 namespace ChatServer
 {
     public class StreamReader
     {
-        private byte[] data;
-        private byte[] dataFromClient;
-        private byte[] remaining;
+        private byte[] remaining = new byte[0];
         private readonly Stream stream;
 
         public StreamReader(Stream stream)
         {
             this.stream = stream;
-            data = new byte[12];
         }
 
-        public short ReadShort()
+        public void ReadShort(Action<short> callback)
         {
-            var data = GetData(2);
-            return BitConverter.ToInt16(data);
+            GetData(2, r =>
+            {
+                if (r.Length == 0)
+                    callback(0);
+                else
+                    callback(BitConverter.ToInt16(r));
+            });
         }
 
-        public string ReadString(short size)
+        public void ReadString(short size, Action<string> callback)
         {
-            var data = GetData(size);
-            return Encoding.ASCII.GetString(data);
+            GetData(size, r => callback(Encoding.ASCII.GetString(r)));
         }
 
         public void WriteShort(short value)
@@ -41,7 +40,10 @@ namespace ChatServer
 
         public void WriteData(byte[] value)
         {
-            stream.Write(value);
+            stream.BeginWrite(value, 0, value.Length, r =>
+            {
+                stream.EndWrite(r);
+            }, null);
         }
 
         public void Close()
@@ -49,50 +51,47 @@ namespace ChatServer
             stream.Close();
         }
 
-        public byte[] GetData(int length)
+        public void GetData(int length, Action<byte[]> callback)
         {
+            var buffer = new byte[length];
             if (CheckRemaining())
             {
-                dataFromClient = remaining;
-                if(dataFromClient.Length >= length)
-                    return TreatDataOverflow(length);
-                return GetBytesFromData(length);
+                Array.Resize(ref buffer, buffer.Length + remaining.Length);
+                Array.Copy(remaining, buffer, remaining.Length);
             }
+            
+            var abc = stream.BeginRead(buffer, remaining.Length, buffer.Length - remaining.Length, r =>
+            {
+                int bytesReceived = stream.EndRead(r);
+                if (bytesReceived == 0)
+                    callback(new byte[0]);
+                Array.Resize(ref buffer, bytesReceived + remaining.Length);
+                Array.Resize(ref remaining, 0);
 
-            Array.Resize(ref dataFromClient, 0);
-            return GetBytesFromData(length);
+                if (buffer.Length < length)
+                    GetData(length - buffer.Length, s => callback(Concat(buffer, s)));
+                else
+                {
+                    buffer = TreatDataOverflow(length, buffer);
+                    callback(buffer);
+                }
+            }, null);
         }
 
-        private byte[] GetBytesFromData(int length)
+        private byte[] Concat (byte[] first, byte[] second)
         {
-            Task<int> bytesReceived = stream.ReadAsync(data).AsTask();
-            Task toContinue = bytesReceived.ContinueWith(CopyBytesAndResize, length);
-            toContinue.Wait();
-
-            if (dataFromClient.Length >= length)
-                return TreatDataOverflow(length);
-            return dataFromClient;
+            var result = new byte[first.Length + second.Length];
+            Array.Copy(first, 0, result, 0, first.Length);
+            Array.Copy(second, 0, result, first.Length, second.Length);
+            return result;
         }
 
-        private void CopyBytesAndResize(Task<int> bytesReceived, object length)
+        private byte[] TreatDataOverflow(int length, byte[] data)
         {
-            if (bytesReceived.Result == 0 || (int)length == 0)
-                throw new IOException();
-
-            int index = dataFromClient.Length;
-            Array.Resize(ref dataFromClient, dataFromClient.Length + bytesReceived.Result);
-            Array.Copy(data, 0, dataFromClient, index, bytesReceived.Result);
-
-            while (dataFromClient.Length < (int)length)
-                GetBytesFromData((int)length);
-        }
-
-        private byte[] TreatDataOverflow(int length)
-        {
-            Array.Resize(ref remaining, dataFromClient.Length - length);
-            Array.Copy(dataFromClient, length, remaining, 0, remaining.Length);
-            Array.Resize(ref dataFromClient, length);
-            return dataFromClient;
+            Array.Resize(ref remaining, data.Length - length);
+            Array.Copy(data, length, remaining, 0, remaining.Length);
+            Array.Resize(ref data, length);
+            return data;
         }
 
         private bool CheckRemaining()

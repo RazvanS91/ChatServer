@@ -14,40 +14,28 @@ namespace ChatServer
         public void Join(Participant client)
         {
             clients.Add(client);
-            Task.Run(() => HandleClient(client));
-        }
-
-        private void HandleClient(Participant client)
-        {
-            try
+            client.StartConversation(m =>
             {
-                client.ReceiveUsername();
-                SendMessageToAllClients(new Message($"{client.Username} is now online !"));
-                while (client.isConnected)
+                if(m.Equals(new Message($"{client.Username} is now offline !")))
                 {
-                    Message message = client.RetrieveMessage();
-                    if (message.Equals(new Message($"{client.Username} is now offline !")))
-                        client.isConnected = false;
-                    SendMessageToAllClients(message);
+                    Leave(client, false);
+                    SendMessageToAllClients(m);
                 }
-                Leave(client, false);
-            }
-            catch (IOException)
-            {
-                Leave(client, true);
-            }
+                else if (m.Equals(new Message($"{client.Username} has lost connection !")))
+                    Leave(client, true);
+                else SendMessageToAllClients(m);
+            });
         }
 
         public void Leave(Participant client, bool hasLostConnection)
         {
-            client.isConnected = false;
             clients.Remove(client);
             client.Disconnect();
             if (hasLostConnection)
                 SendMessageToAllClients(new Message($"{client.Username} lost connection !"));
         }
 
-        public void SendMessageToAllClients(Message message)
+        private void SendMessageToAllClients(Message message)
         {
             List<Participant> clientsToRemove = new List<Participant>();
 

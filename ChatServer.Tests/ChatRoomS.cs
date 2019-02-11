@@ -11,41 +11,29 @@ namespace ChatServer
     {
         private List<ParticipantS> clients = new List<ParticipantS>();
 
-        public void Join(ParticipantS client)
-        {
-            clients.Add(client);
-            HandleClient(client);
-        }
-
         public void Add(ParticipantS client)
         {
             clients.Add(client);
         }
 
-        private void HandleClient(ParticipantS client)
+        public void Join(ParticipantS client)
         {
-            try
+            clients.Add(client);
+            client.StartConversation(m =>
             {
-                client.ReceiveUsername();
-                SendMessageToAllClients(new Message($"{client.Username} is now online !"));
-                while (client.isConnected)
+                if (m.Equals(new Message($"{client.Username} is now offline !")))
                 {
-                    Message message = client.RetrieveMessage();
-                    if (message.Equals(new Message($"{client.Username} is now offline !")))
-                        client.isConnected = false;
-                    SendMessageToAllClients(message);
+                    Leave(client, false);
+                    SendMessageToAllClients(m);
                 }
-                Leave(client, false);
-            }
-            catch (IOException)
-            {
-                Leave(client, true);
-            }
+                else if (m.Equals(new Message($"{client.Username} has lost connection !")))
+                    Leave(client, true);
+                else SendMessageToAllClients(m);
+            });
         }
 
         public void Leave(ParticipantS client, bool hasLostConnection)
         {
-            client.isConnected = false;
             clients.Remove(client);
             client.Disconnect();
             if (hasLostConnection)
@@ -55,20 +43,19 @@ namespace ChatServer
         public void SendMessageToAllClients(Message message)
         {
             List<ParticipantS> clientsToRemove = new List<ParticipantS>();
-            foreach(var client in clients)
+
+            foreach (var client in clients)
             {
                 try
                 {
                     client.Send(message);
-                    client.Message = Encoding.ASCII.GetString(message.ToByteArray());
-                    Console.WriteLine($"Message succesfully sent at {DateTime.Now} to {client.Username} : {Encoding.ASCII.GetString(message.ToByteArray())}");
+                    Console.WriteLine($"Message sent to {client.Username} : {Encoding.ASCII.GetString(message.ToByteArray())}");
                 }
-                catch(ObjectDisposedException)
+                catch (ObjectDisposedException)
                 {
                     clientsToRemove.Add(client);
                 }
             }
-
             foreach (var client in clientsToRemove)
                 Leave(client, true);
         }
