@@ -1,9 +1,7 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Text;
-using System.Net;
 using System.IO;
-using System.Net.Sockets;
+using System.Threading.Tasks;
 
 namespace ChatServer
 {
@@ -20,26 +18,29 @@ namespace ChatServer
             data = new byte[12];
         }
 
-        public short ReadShort()
+        public async Task<short> ReadShort()
         {
-            var data = GetData(2);
-            return BitConverter.ToInt16(data);
+            var data = await GetData(2);
+            if (data.Length == 0)
+                return 0;
+            else
+                return BitConverter.ToInt16(data);
         }
 
-        public string ReadString(short size)
+        public async Task<string> ReadString(short size)
         {
-            var data = GetData(size);
+            var data = await GetData(size);
             return Encoding.ASCII.GetString(data);
         }
 
-        public void WriteShort(short value)
+        public async Task WriteShort(short value)
         {
-            WriteData(BitConverter.GetBytes(value));
+            await WriteData(BitConverter.GetBytes(value));
         }
 
-        public void WriteData(byte[] value)
+        public async Task WriteData(byte[] value)
         {
-            stream.Write(value);
+            await stream.WriteAsync(value);
         }
 
         public void Close()
@@ -47,35 +48,49 @@ namespace ChatServer
             stream.Close();
         }
 
-        public byte[] GetData(int length)
+        public async Task<byte[]> GetData(int length)
         {
             if (CheckRemaining())
             {
                 dataFromClient = remaining;
-                return GetBytesFromData(length);
-            }
+                if (dataFromClient.Length < length)
+                    return await GetBytesFromData(length);
 
+                TreatDataOverflow(dataFromClient.Length - length);
+                return dataFromClient;
+            }
             Array.Resize(ref dataFromClient, 0);
-            return GetBytesFromData(length);
+            return await GetBytesFromData(length);
         }
 
-        private byte[] GetBytesFromData(int length)
+        private async Task<byte[]> GetBytesFromData(int length)
         {
             do
             {
-                int bytesReceived = stream.Read(data);
-                int index = dataFromClient.Length;
-                Array.Resize(ref dataFromClient, dataFromClient.Length + bytesReceived);
-                Array.Copy(data, 0, dataFromClient, index, bytesReceived);
-            } while (dataFromClient.Length < length);
-
-            if (dataFromClient.Length > length)
-            {
-                Array.Resize(ref remaining, dataFromClient.Length - length);
-                Array.Copy(dataFromClient, length, remaining, 0, remaining.Length);
+                var read = await stream.ReadAsync(data);
+                if (read == 0)
+                    return new byte[0];
+                ResizeAndCopy(read);
             }
-            Array.Resize(ref dataFromClient, length);
+            while (dataFromClient.Length < length);
+
+            TreatDataOverflow(dataFromClient.Length - length);
             return dataFromClient;
+        }
+
+        private void TreatDataOverflow(int extraLength)
+        {
+            int index = dataFromClient.Length - extraLength;
+            Array.Resize(ref remaining, extraLength);
+            Array.Copy(dataFromClient, index, remaining, 0, extraLength);
+            Array.Resize(ref dataFromClient, index);
+        }
+
+        private void ResizeAndCopy(int bytesRead)
+        {
+            int index = dataFromClient.Length;
+            Array.Resize(ref dataFromClient, dataFromClient.Length + bytesRead);
+            Array.Copy(data, 0, dataFromClient, index, bytesRead);
         }
 
         private bool CheckRemaining() => !Object.Equals(remaining, null) ? true : false;

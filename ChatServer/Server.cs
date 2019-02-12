@@ -4,6 +4,7 @@ using System.Text;
 using System.Net.Sockets;
 using System.Net;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace ChatServer
 {
@@ -15,7 +16,8 @@ namespace ChatServer
         public void Start()
         {
             server.Start();
-            AcceptClient();
+            while(true)
+                AcceptClient();
         }
 
         private void AcceptClient()

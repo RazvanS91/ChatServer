@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace ChatServer
 {
@@ -8,27 +9,35 @@ namespace ChatServer
     {
         private List<Participant> clients = new List<Participant>();
 
-        public void Join(Participant client)
+        public async Task Join(Participant client)
         {
             clients.Add(client);
-            client.ReceiveUsername();
-            while (true)
+            await client.ReceiveUsername();
+            await SendMessageToAllClients(new Message($"{client.Username} is now online !"));
+            while (client.isConnected)
             {
-                Message message = client.RetrieveMessage();
-                SendMessageToAllClients(message);
+                Message message = await client.RetrieveMessage();
+                if (message.Equals(new Message($"{client.Username} is now offline !")))
+                    Leave(client, false);
+                await SendMessageToAllClients(message);
             }
         }
 
-        public void Leave(Participant client)
+        public void Leave(Participant client, bool hasLostConnection)
         {
             clients.Remove(client);
             client.Disconnect();
+            if (hasLostConnection)
+                SendMessageToAllClients(new Message($"{client.Username} has lost connection !"));
         }
 
-        public void SendMessageToAllClients(Message message)
+        public async Task SendMessageToAllClients(Message message)
         {
             foreach (Participant client in clients)
-                client.Send(message);
+            {
+                Console.WriteLine($"Message sent to {client.Username} : {Encoding.ASCII.GetString(message.ToByteArray())}");
+                await client.Send(message);
+            }
         }
     }
 }
